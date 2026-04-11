@@ -1,12 +1,24 @@
 import base64
 import nbformat
+import re
+from copy import deepcopy
 from nbconvert import LatexExporter
+from nbconvert.filters import escape_latex
 from re import sub, DOTALL
 
 from traitlets.config import Config
 
 
 class CellSelectorModel:
+    MARKDOWN_HEADING_COMMANDS = {
+        1: "section",
+        2: "subsection",
+        3: "subsubsection",
+        4: "paragraph",
+        5: "subparagraph",
+        6: "textbf",
+    }
+
     def __init__(self, notebook_data):
         self.notebook_data = notebook_data
         self.tex_content = None
@@ -17,7 +29,8 @@ class CellSelectorModel:
 
     def convert_to_tex(self, selected_indices):
         # Нумерация в selected_indices идет с 1, а в notebook_data с 0.
-        selected_cells = [self.notebook_data['cells'][i - 1] for i in selected_indices]
+        selected_cells = [deepcopy(self.notebook_data['cells'][i - 1]) for i in selected_indices]
+        selected_cells = CellSelectorModel.__convert_markdown_headings(selected_cells)
         temp_notebook = nbformat.v4.new_notebook()
         temp_notebook.cells = selected_cells
 
@@ -61,6 +74,66 @@ class CellSelectorModel:
                         counter += 1
 
     @staticmethod
+    def __convert_markdown_headings(cells):
+        for cell in cells:
+            if cell.get('cell_type') != 'markdown':
+                continue
+
+            source = cell.get('source', '')
+            if isinstance(source, list):
+                source = ''.join(source)
+
+            cell['source'] = CellSelectorModel.__replace_markdown_headings(source)
+
+        return cells
+
+    @staticmethod
+    def __replace_markdown_headings(markdown_source):
+        result_lines = []
+        in_fenced_block = False
+        fence_char = None
+        fence_length = 0
+
+        for line in markdown_source.splitlines(keepends=True):
+            line_body = line.rstrip('\r\n')
+            line_ending = line[len(line_body):]
+
+            fence_match = re.match(r'^[ \t]{0,3}(`{3,}|~{3,})', line_body)
+            if fence_match:
+                marker = fence_match.group(1)
+                marker_char = marker[0]
+                marker_length = len(marker)
+                if not in_fenced_block:
+                    in_fenced_block = True
+                    fence_char = marker_char
+                    fence_length = marker_length
+                elif marker_char == fence_char and marker_length >= fence_length:
+                    in_fenced_block = False
+                    fence_char = None
+                    fence_length = 0
+                result_lines.append(line)
+                continue
+
+            if in_fenced_block:
+                result_lines.append(line)
+                continue
+
+            heading_match = re.match(r'^[ \t]{0,3}(#{1,6})(?!#)(?:[ \t]+|$)(.*)$', line_body)
+            if not heading_match:
+                result_lines.append(line)
+                continue
+
+            level = len(heading_match.group(1))
+            heading_text = heading_match.group(2).strip()
+            heading_text = re.sub(r'[ \t]+#+[ \t]*$', '', heading_text).strip()
+            escaped_heading = escape_latex(heading_text)
+            command = CellSelectorModel.MARKDOWN_HEADING_COMMANDS[level]
+
+            result_lines.append(f"\\{command}{{{escaped_heading}}}{line_ending}")
+
+        return ''.join(result_lines)
+
+    @staticmethod
     def __validate_tex(tex_content):
         tex_lines = tex_content.split("\n")
         tex_lines = CellSelectorModel.__add_required_libraries(tex_lines)
@@ -72,12 +145,19 @@ class CellSelectorModel:
 
     @staticmethod
     def __add_star_to_sections(tex_lines):
-        # Добавляем * к \section, \subsection, \subsubsection для отмены нумерации заголовков h1, h2, h3.
+        # Добавляем * к секционным командам для отмены нумерации заголовков h1-h5.
         tex_lines = [
             line if not any(
-                line.strip().startswith(command) for command in ["\\section", "\\subsection", "\\subsubsection"])
+                line.strip().startswith(command) for command in [
+                    "\\section",
+                    "\\subsection",
+                    "\\subsubsection",
+                    "\\paragraph",
+                    "\\subparagraph",
+                ])
             else line.replace("\\section", "\\section*").replace("\\subsection", "\\subsection*").replace(
-                "\\subsubsection", "\\subsubsection*")
+                "\\subsubsection", "\\subsubsection*").replace("\\paragraph", "\\paragraph*").replace(
+                "\\subparagraph", "\\subparagraph*")
             for line in tex_lines
         ]
         return tex_lines

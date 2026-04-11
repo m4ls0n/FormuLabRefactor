@@ -135,16 +135,23 @@ class FileFinalizationModel:
         )
 
     def __add_header_numeration(self):
-        """Добавляет нумерацию заголовков h1, h2, h3 в tex-файл."""
+        """Добавляет нумерацию заголовков h1-h5 в tex-файл."""
         # Разбиваем исходный tex-файл построчно.
         tex_lines = self.final_tex_content.split("\n")
 
-        # Убираем * из \section*, \subsection*, \subsubsection* для возврата нумерации заголовков h1, h2, h3.
+        # Убираем * из секционных команд для возврата нумерации заголовков h1-h5.
         tex_lines = [
             line if not any(
-                line.strip().startswith(command) for command in ["\\section", "\\subsection", "\\subsubsection"])
+                line.strip().startswith(command) for command in [
+                    "\\section",
+                    "\\subsection",
+                    "\\subsubsection",
+                    "\\paragraph",
+                    "\\subparagraph",
+                ])
             else line.replace("\\section*", "\\section").replace("\\subsection*", "\\subsection").replace(
-                "\\subsubsection*", "\\subsubsection")
+                "\\subsubsection*", "\\subsubsection").replace("\\paragraph*", "\\paragraph").replace(
+                "\\subparagraph*", "\\subparagraph")
             for line in tex_lines
         ]
 
@@ -157,14 +164,24 @@ class FileFinalizationModel:
 
         for i, line in enumerate(tex_lines):
             # Проверяем, начинается ли строка с ненумерованного заголовка.
-            if line.strip().startswith(("\\section*{", "\\subsection*{", "\\subsubsection*{")):
+            if line.strip().startswith((
+                    "\\section*{",
+                    "\\subsection*{",
+                    "\\subsubsection*{",
+                    "\\paragraph*{",
+                    "\\subparagraph*{",
+            )):
                 # Определяем уровень заголовка.
                 if line.strip().startswith("\\section*{"):
                     level = "section"
                 elif line.strip().startswith("\\subsection*{"):
                     level = "subsection"
-                else:
+                elif line.strip().startswith("\\subsubsection*{"):
                     level = "subsubsection"
+                elif line.strip().startswith("\\paragraph*{"):
+                    level = "paragraph"
+                else:
+                    level = "subparagraph"
 
                 # Извлекаем название заголовка (может быть на одной или нескольких строках).
                 header_content = line.split("{", 1)[1] if "{" in line else ""
