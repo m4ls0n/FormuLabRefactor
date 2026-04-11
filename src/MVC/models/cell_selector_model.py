@@ -10,13 +10,13 @@ from traitlets.config import Config
 
 
 class CellSelectorModel:
-    MARKDOWN_HEADING_COMMANDS = {
-        1: "section",
-        2: "subsection",
-        3: "subsubsection",
-        4: "paragraph",
-        5: "subparagraph",
-        6: "textbf",
+    MARKDOWN_HEADING_STYLES = {
+        1: ("\\LARGE", "1.2em", "0.8em"),
+        2: ("\\Large", "1.1em", "0.7em"),
+        3: ("\\large", "1em", "0.6em"),
+        4: ("\\normalsize", "0.9em", "0.5em"),
+        5: ("\\small", "0.8em", "0.45em"),
+        6: ("\\footnotesize", "0.7em", "0.4em"),
     }
 
     def __init__(self, notebook_data):
@@ -127,9 +127,12 @@ class CellSelectorModel:
             heading_text = heading_match.group(2).strip()
             heading_text = re.sub(r'[ \t]+#+[ \t]*$', '', heading_text).strip()
             escaped_heading = escape_latex(heading_text)
-            command = CellSelectorModel.MARKDOWN_HEADING_COMMANDS[level]
+            size_command, top_space, bottom_space = CellSelectorModel.MARKDOWN_HEADING_STYLES[level]
 
-            result_lines.append(f"\\{command}{{{escaped_heading}}}{line_ending}")
+            result_lines.append(
+                rf"\par\addvspace{{{top_space}}}\noindent{{{size_command}\bfseries {escaped_heading}}}"
+                rf"\par\nobreak\vspace{{{bottom_space}}}{line_ending}"
+            )
 
         return ''.join(result_lines)
 
@@ -138,29 +141,9 @@ class CellSelectorModel:
         tex_lines = tex_content.split("\n")
         tex_lines = CellSelectorModel.__add_required_libraries(tex_lines)
         tex_lines = CellSelectorModel.__comment_title(tex_lines)
-        tex_lines = CellSelectorModel.__add_star_to_sections(tex_lines)
         tex_lines = CellSelectorModel.__remove_labels(tex_lines)
         tex_lines = CellSelectorModel.__handle_long_math_formulas(tex_lines)
         return "\n".join(tex_lines)
-
-    @staticmethod
-    def __add_star_to_sections(tex_lines):
-        # Добавляем * к секционным командам для отмены нумерации заголовков h1-h5.
-        tex_lines = [
-            line if not any(
-                line.strip().startswith(command) for command in [
-                    "\\section",
-                    "\\subsection",
-                    "\\subsubsection",
-                    "\\paragraph",
-                    "\\subparagraph",
-                ])
-            else line.replace("\\section", "\\section*").replace("\\subsection", "\\subsection*").replace(
-                "\\subsubsection", "\\subsubsection*").replace("\\paragraph", "\\paragraph*").replace(
-                "\\subparagraph", "\\subparagraph*")
-            for line in tex_lines
-        ]
-        return tex_lines
 
     @staticmethod
     def __comment_title(tex_lines):
