@@ -31,13 +31,14 @@ class CellSelectorModel:
         # Нумерация в selected_indices идет с 1, а в notebook_data с 0.
         selected_cells = [deepcopy(self.notebook_data['cells'][i - 1]) for i in selected_indices]
         selected_cells = CellSelectorModel.__convert_markdown_headings(selected_cells)
+        selected_cells = CellSelectorModel.__clear_image_output_filenames(selected_cells)
         temp_notebook = nbformat.v4.new_notebook()
         temp_notebook.cells = selected_cells
 
         self.__extract_images(selected_cells)
 
         c = Config()
-        c.ExtractOutputPreprocessor.output_filename_template = "image_{index}{extension}"
+        c.ExtractOutputPreprocessor.output_filename_template = "image_{cell_index}_{index}{extension}"
 
         latex_exporter = LatexExporter(config=c)
         try:
@@ -72,6 +73,22 @@ class CellSelectorModel:
                         name = f'attach_{counter}.{ext}'
                         self.ipynb_images[name] = img_data
                         counter += 1
+
+    @staticmethod
+    def __clear_image_output_filenames(cells):
+        for cell in cells:
+            for output in cell.get('outputs', []):
+                if not any(mime.startswith('image/') for mime in output.get('data', {})):
+                    continue
+
+                metadata = output.get('metadata')
+                if not metadata:
+                    continue
+
+                metadata.pop('filename', None)
+                metadata.pop('filenames', None)
+
+        return cells
 
     @staticmethod
     def __convert_markdown_headings(cells):
