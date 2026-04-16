@@ -213,6 +213,15 @@ class CellSelectorModel:
         threshold = 200  # Пороговое значение длины математической формулы.
         tex_str = "\n".join(tex_lines)
 
+        def replace_display_math(match):
+            content = match.group(1).strip()
+            if not content:
+                return match.group(0)
+            return "\\begin{dmath*}\n" + content + "\n\\end{dmath*}"
+
+        tex_str = sub(r'\\\[\s*(.*?)\s*\\\]', replace_display_math, tex_str, flags=DOTALL)
+        tex_str = sub(r'\$\$\s*(.*?)\s*\$\$', replace_display_math, tex_str, flags=DOTALL)
+
         def replace_inline_math(match):
             content = match.group(1).strip()
             if len(content) > threshold:
