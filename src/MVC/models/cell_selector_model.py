@@ -27,6 +27,31 @@ class CellSelectorModel:
     def get_cells(self):
         return self.notebook_data['cells'] if self.notebook_data else []
 
+    def get_all_cell_indices(self):
+        return list(range(1, len(self.get_cells()) + 1))
+
+    def get_markdown_cell_indices(self):
+        return self.__get_cell_indices_by_predicate(
+            lambda cell: cell.get('cell_type') == 'markdown'
+        )
+
+    def get_code_cell_indices(self):
+        return self.__get_cell_indices_by_predicate(
+            lambda cell: cell.get('cell_type') == 'code'
+        )
+
+    def get_output_cell_indices(self):
+        return self.__get_cell_indices_by_predicate(
+            lambda cell: bool(cell.get('outputs'))
+        )
+
+    def __get_cell_indices_by_predicate(self, predicate):
+        return [
+            cell_index
+            for cell_index, cell in enumerate(self.get_cells(), start=1)
+            if predicate(cell)
+        ]
+
     def convert_to_tex(self, selected_indices):
         # Нумерация в selected_indices идет с 1, а в notebook_data с 0.
         selected_cells = [deepcopy(self.notebook_data['cells'][i - 1]) for i in selected_indices]

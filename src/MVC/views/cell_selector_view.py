@@ -93,11 +93,11 @@ class CellSelectorView(tk.Frame):
         button_frame.pack(fill=tk.X, side=tk.BOTTOM)
 
         # Кнопка "Выделить все" и "Снять выделение" отображаются всегда.
-        tk.Button(button_frame, text="Выделить все", command=self.select_all).pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Button(button_frame, text="Снять выделение", command=self.deselect_all).pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Button(button_frame, text="Только текст", command=self.select_only_text).pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Button(button_frame, text="Только код", command=self.select_only_code).pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Button(button_frame, text="Только выходные данные", command=self.select_only_outputs).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(button_frame, text="Выделить все", command=self.controller.select_all_cells).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(button_frame, text="Снять выделение", command=self.controller.deselect_all_cells).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(button_frame, text="Только текст", command=self.controller.select_markdown_cells).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(button_frame, text="Только код", command=self.controller.select_code_cells).pack(side=tk.LEFT, padx=5, pady=5)
+        tk.Button(button_frame, text="Только выходные данные", command=self.controller.select_output_cells).pack(side=tk.LEFT, padx=5, pady=5)
 
         # Для последней страницы отображать кнопку "Конвертировать", в остальных случаях — "Далее".
         if (page_number + 1) * self.PAGE_SIZE < len(self.cells):
@@ -124,28 +124,10 @@ class CellSelectorView(tk.Frame):
             self.cell_vars[cell_index] = tk.BooleanVar()
         return self.cell_vars[cell_index]
 
-    def _set_selection_by_predicate(self, predicate):
-        for cell_index, cell in enumerate(self.cells, start=1):
-            self._get_cell_var(cell_index).set(predicate(cell))
-
-    @staticmethod
-    def _cell_has_outputs(cell):
-        return bool(cell.get('outputs'))
-
-    def select_all(self):
-        self._set_selection_by_predicate(lambda cell: True)
-
-    def deselect_all(self):
-        self._set_selection_by_predicate(lambda cell: False)
-
-    def select_only_text(self):
-        self._set_selection_by_predicate(lambda cell: cell.get('cell_type') == 'markdown')
-
-    def select_only_code(self):
-        self._set_selection_by_predicate(lambda cell: cell.get('cell_type') == 'code')
-
-    def select_only_outputs(self):
-        self._set_selection_by_predicate(self._cell_has_outputs)
+    def set_selected_indices(self, selected_indices):
+        selected_indices = set(selected_indices)
+        for cell_index in range(1, len(self.cells) + 1):
+            self._get_cell_var(cell_index).set(cell_index in selected_indices)
 
     def next_page(self):
         """Перейти на следующую страницу."""

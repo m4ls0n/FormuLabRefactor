@@ -24,3 +24,18 @@ class CellSelectorController:
 
     def back(self):
         self.app.show_main_menu()
+
+    def select_all_cells(self):
+        self.view.set_selected_indices(self.model.get_all_cell_indices())
+
+    def deselect_all_cells(self):
+        self.view.set_selected_indices([])
+
+    def select_markdown_cells(self):
+        self.view.set_selected_indices(self.model.get_markdown_cell_indices())
+
+    def select_code_cells(self):
+        self.view.set_selected_indices(self.model.get_code_cell_indices())
+
+    def select_output_cells(self):
+        self.view.set_selected_indices(self.model.get_output_cell_indices())
