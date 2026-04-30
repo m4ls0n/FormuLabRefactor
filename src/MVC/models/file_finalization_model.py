@@ -1,11 +1,21 @@
 import os
 import re
 from tkinter import filedialog
-
 from src.utils.formulab_exceptions import FileNotSelectedException
 
-
 class FileFinalizationModel:
+    FORMULAB_HEADING_PATTERN = re.compile(
+        r'\\FormuLabHeading\{(?P<level>[1-6])\}\{(?P<title>(?:\\[{}]|[^{}])*)\}'
+    )
+    FORMULAB_TOC_LEVELS = {
+        1: "section",
+        2: "subsection",
+        3: "subsubsection",
+        4: "paragraph",
+        5: "subparagraph",
+        6: "subparagraph",
+    }
+
     def __init__(self, intermediate_tex_content, ipynb_images):
         self.intermediate_tex_content = intermediate_tex_content
         self.ipynb_images = ipynb_images
@@ -17,6 +27,11 @@ class FileFinalizationModel:
 
         if include_toc:
             self.__add_table_of_contents()
+
+        self.__apply_formulab_heading_options(
+            include_toc=include_toc,
+            include_headers_numeration=include_headers_numeration
+        )
 
         if include_headers_numeration:
             self.__add_header_numeration()
@@ -130,9 +145,73 @@ class FileFinalizationModel:
         """Добавляет оглавление в tex-файл."""
         self.final_tex_content = self.final_tex_content.replace(
             "\\begin{document}",
-            "\\begin{document}\n\\tableofcontents",
+            "\\begin{document}\n\\setcounter{tocdepth}{5}\n\\tableofcontents",
             1
         )
+
+    def __apply_formulab_heading_options(self, include_toc=False, include_headers_numeration=False):
+        tex_lines = self.final_tex_content.splitlines(keepends=True)
+        new_tex_lines = []
+        heading_counters = [0] * 6
+        pending_heading = None
+
+        for line in tex_lines:
+            line_without_markers = []
+            current_position = 0
+            for heading_match in self.FORMULAB_HEADING_PATTERN.finditer(line):
+                line_without_markers.append(line[current_position:heading_match.start()])
+                level = int(heading_match.group("level"))
+                title = heading_match.group("title")
+                heading_number = None
+
+                if include_headers_numeration:
+                    heading_number = self.__next_heading_number(heading_counters, level)
+
+                if include_toc:
+                    toc_title = f"{heading_number} {title}" if heading_number else title
+                    toc_level = self.FORMULAB_TOC_LEVELS[level]
+                    if line_without_markers and not line_without_markers[-1].endswith(("\n", "\r")):
+                        line_without_markers.append("\n")
+                    line_without_markers.append(
+                        f"\\phantomsection\n\\addcontentsline{{toc}}{{{toc_level}}}{{{toc_title}}}\n"
+                    )
+
+                pending_heading = {
+                    "title": title,
+                    "number": heading_number,
+                }
+                current_position = heading_match.end()
+
+            if current_position:
+                line_without_markers.append(line[current_position:])
+                line = "".join(line_without_markers)
+
+            if pending_heading and pending_heading["title"] in line and "\\addcontentsline" not in line:
+                if pending_heading["number"]:
+                    line = line.replace(
+                        pending_heading["title"],
+                        f"{pending_heading['number']} {pending_heading['title']}",
+                        1
+                    )
+                pending_heading = None
+
+            new_tex_lines.append(line)
+
+        self.final_tex_content = "".join(new_tex_lines)
+
+    @staticmethod
+    def __next_heading_number(heading_counters, level):
+        level_index = level - 1
+        for index in range(level_index):
+            if heading_counters[index] == 0:
+                heading_counters[index] = 1
+
+        heading_counters[level_index] += 1
+
+        for index in range(level, len(heading_counters)):
+            heading_counters[index] = 0
+
+        return ".".join(str(counter) for counter in heading_counters[:level] if counter)
 
     def __add_header_numeration(self):
         """Добавляет нумерацию заголовков h1-h5 в tex-файл."""

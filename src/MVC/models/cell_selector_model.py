@@ -5,9 +5,7 @@ from copy import deepcopy
 from nbconvert import LatexExporter
 from nbconvert.filters import escape_latex
 from re import sub, DOTALL
-
 from traitlets.config import Config
-
 
 class CellSelectorModel:
     MARKDOWN_HEADING_STYLES = {
@@ -172,6 +170,7 @@ class CellSelectorModel:
             size_command, top_space, bottom_space = CellSelectorModel.MARKDOWN_HEADING_STYLES[level]
 
             result_lines.append(
+                rf"\FormuLabHeading{{{level}}}{{{escaped_heading}}}" + "\n"
                 rf"\par\addvspace{{{top_space}}}\noindent{{{size_command}\bfseries {escaped_heading}}}"
                 rf"\par\nobreak\vspace{{{bottom_space}}}{line_ending}"
             )
