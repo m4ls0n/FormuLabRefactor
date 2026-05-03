@@ -2,156 +2,219 @@ import tkinter as tk
 
 
 class CellSelectorView(tk.Frame):
-    def __init__(self, controller, cells):
+    PAGE_SIZE = 250
+
+    def __init__(self, controller, file_names):
         super().__init__(controller.app.root)
         self.controller = controller
-        self.cell_vars = dict()  # Словарь состояний чекбоксов. Ключ — номер ячейки, значение — состояние чекбокса.
+        self.file_names = file_names
+        self.current_file_index = 0
+        self.current_page = 0
+        self.cell_vars = {}
         self.canvas = None
-        self.cells = cells  # Все ячейки.
-        self.PAGE_SIZE = 250  # Количество ячеек на одной странице.
-        self.current_page = 0  # Текущая страница.
-        self.TOTAL_PAGES = len(self.cells) // self.PAGE_SIZE + 1  # Общее количество страниц.
-        self.show_current_page(self.current_page)  # Показываем первую страницу.
+        self.file_listbox = None
+        self.show_screen()
 
-    def show_current_page(self, page_number):
-        """Загружаем и отображаем ячейки для текущей страницы."""
-        # Вычисление начала и конца диапазона ячеек для текущей страницы.
-        start = page_number * self.PAGE_SIZE
-        end = start + self.PAGE_SIZE
-        page_cells = self.cells[start:end]  # Ячейки для текущей страницы.
-
-        # Обновляем интерфейс.
-        self.clear_frame()  # Очищаем текущий экран.
-
+    def show_screen(self):
         self.controller.app.root.title("FormuLab")
         self.pack(fill=tk.BOTH, expand=True)
+        self.clear_frame()
 
-        header = tk.Label(self, text=f"Выберите ячейки для конвертации (стр. {page_number + 1}/{self.TOTAL_PAGES})", font=("Arial", 14))
+        header = tk.Label(self, text="Выберите ячейки для конвертации", font=("Arial", 14))
         header.pack(pady=10, anchor="n")
 
-        self.show_cells(page_cells, page_number)  # Отображаем ячейки для текущей страницы.
-        self.update_navigation_buttons(page_number)  # Обновляем кнопки навигации.
+        content_frame = tk.Frame(self)
+        content_frame.pack(fill=tk.BOTH, expand=True)
 
-    def show_cells(self, page_cells, page_number):
-        # Создаем фрейм для прокручиваемого списка.
-        list_frame = tk.Frame(self)
+        self.__show_file_list(content_frame)
+        self.__show_current_file_cells(content_frame)
+        self.__show_action_buttons()
+
+    def __show_file_list(self, parent):
+        file_frame = tk.Frame(parent, width=260)
+        file_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(8, 4), pady=4)
+        file_frame.pack_propagate(False)
+
+        tk.Label(file_frame, text="Файлы", font=("Arial", 11, "bold")).pack(anchor="w")
+        self.file_listbox = tk.Listbox(file_frame, exportselection=False)
+        self.file_listbox.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+        self.file_listbox.bind("<<ListboxSelect>>", self.__on_file_selected)
+        self.__refresh_file_list()
+
+    def __show_current_file_cells(self, parent):
+        cells = self.controller.get_cells_for_file(self.current_file_index)
+        total_pages = max(1, (len(cells) + self.PAGE_SIZE - 1) // self.PAGE_SIZE)
+        self.current_page = min(self.current_page, total_pages - 1)
+
+        cell_area = tk.Frame(parent)
+        cell_area.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(4, 8), pady=4)
+
+        tk.Label(
+            cell_area,
+            text=f"{self.file_names[self.current_file_index]} (стр. {self.current_page + 1}/{total_pages})",
+            font=("Arial", 11, "bold")
+        ).pack(anchor="w")
+
+        list_frame = tk.Frame(cell_area)
         list_frame.pack(fill=tk.BOTH, expand=True)
 
         self.canvas = tk.Canvas(list_frame)
-        # Глобальный обработчик колёсика для прокрутки всего списка.
         self.canvas.bind_all("<MouseWheel>", self._on_canvas_mousewheel)
         self.canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         scrollbar = tk.Scrollbar(list_frame, orient="vertical", command=self.canvas.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
         self.canvas.config(yscrollcommand=scrollbar.set)
 
         scrollable_frame = tk.Frame(self.canvas)
         self.canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
 
-        # Добавляем поля для ячеек.
-        for i, cell in enumerate(page_cells):
-            current_cell_index = (page_number * self.PAGE_SIZE) + i + 1
-            cell_type = cell['cell_type']
-            content = cell['source']
-            cell_frame = tk.Frame(scrollable_frame)
-            cell_frame.pack(fill=tk.X, pady=5)
+        start = self.current_page * self.PAGE_SIZE
+        end = start + self.PAGE_SIZE
+        for offset, cell in enumerate(cells[start:end], start=start + 1):
+            self.__show_cell(scrollable_frame, offset, cell)
 
-            # Создаем фрейм для текстового поля и его прокручиваемого ползунка.
-            text_frame = tk.Frame(cell_frame)
-            text_frame.pack(fill=tk.X)
-
-            # Создаем readonly текстовое поле для каждой ячейки.
-            text_widget = tk.Text(text_frame, height=5, width=80, wrap=tk.WORD,
-                                  bg="white", fg="black", font=("Arial", 10))
-            text_widget.insert(tk.END, f"{current_cell_index}: [{cell_type}] {content}")
-            text_widget.config(state=tk.DISABLED)
-            text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-            # Обработчик колёсика для текстового поля.
-            # При прокрутке внутри ячейки событие не всплывает к канвасу.
-            text_widget.bind("<MouseWheel>", self._on_text_mousewheel)
-
-            # Прокручиваемый ползунок для текстового поля.
-            scrollbar_inner = tk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
-            scrollbar_inner.pack(side=tk.RIGHT, fill=tk.Y)
-            text_widget.config(yscrollcommand=scrollbar_inner.set)
-
-            # Добавляем чекбокс.
-            tk.Checkbutton(cell_frame, text=f"Выбрать {current_cell_index}",
-                           variable=self._get_cell_var(current_cell_index)).pack(anchor="w", pady=2)
-
-        # Обновляем размер canvas после добавления элементов.
         scrollable_frame.update_idletasks()
         self.canvas.config(scrollregion=self.canvas.bbox("all"))
 
-    def update_navigation_buttons(self, page_number):
-        """Обновляем кнопки навигации в зависимости от текущей страницы."""
-        # Фрейм для кнопок.
+    def __show_cell(self, parent, cell_index, cell):
+        cell_type = cell.get('cell_type', '')
+        content = cell.get('source', '')
+        cell_frame = tk.Frame(parent)
+        cell_frame.pack(fill=tk.X, pady=5)
+
+        text_frame = tk.Frame(cell_frame)
+        text_frame.pack(fill=tk.X)
+
+        text_widget = tk.Text(
+            text_frame,
+            height=5,
+            width=80,
+            wrap=tk.WORD,
+            bg="white",
+            fg="black",
+            font=("Arial", 10)
+        )
+        text_widget.insert(tk.END, f"{cell_index}: [{cell_type}] {content}")
+        text_widget.config(state=tk.DISABLED)
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        text_widget.bind("<MouseWheel>", self._on_text_mousewheel)
+
+        scrollbar_inner = tk.Scrollbar(text_frame, orient="vertical", command=text_widget.yview)
+        scrollbar_inner.pack(side=tk.RIGHT, fill=tk.Y)
+        text_widget.config(yscrollcommand=scrollbar_inner.set)
+
+        tk.Checkbutton(
+            cell_frame,
+            text=f"Выбрать {cell_index}",
+            variable=self.__get_cell_var(self.current_file_index, cell_index),
+            command=self.__refresh_file_list
+        ).pack(anchor="w", pady=2)
+
+    def __show_action_buttons(self):
         button_frame = tk.Frame(self)
         button_frame.pack(fill=tk.X, side=tk.BOTTOM)
 
-        # Кнопка "Выделить все" и "Снять выделение" отображаются всегда.
-        tk.Button(button_frame, text="Выделить все", command=self.controller.select_all_cells).pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Button(button_frame, text="Снять выделение", command=self.controller.deselect_all_cells).pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Button(button_frame, text="Только текст", command=self.controller.select_markdown_cells).pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Button(button_frame, text="Только код", command=self.controller.select_code_cells).pack(side=tk.LEFT, padx=5, pady=5)
-        tk.Button(button_frame, text="Только выходные данные", command=self.controller.select_output_cells).pack(side=tk.LEFT, padx=5, pady=5)
+        current_file_frame = tk.Frame(button_frame)
+        current_file_frame.pack(fill=tk.X)
+        tk.Button(current_file_frame, text="Выделить все (файл)", command=lambda: self.controller.select_all_cells("current")).pack(side=tk.LEFT, padx=4, pady=3)
+        tk.Button(current_file_frame, text="Снять выделение (файл)", command=lambda: self.controller.deselect_all_cells("current")).pack(side=tk.LEFT, padx=4, pady=3)
+        tk.Button(current_file_frame, text="Только текст (файл)", command=lambda: self.controller.select_markdown_cells("current")).pack(side=tk.LEFT, padx=4, pady=3)
+        tk.Button(current_file_frame, text="Только код (файл)", command=lambda: self.controller.select_code_cells("current")).pack(side=tk.LEFT, padx=4, pady=3)
+        tk.Button(current_file_frame, text="Только выходные данные (файл)", command=lambda: self.controller.select_output_cells("current")).pack(side=tk.LEFT, padx=4, pady=3)
 
-        # Для последней страницы отображать кнопку "Конвертировать", в остальных случаях — "Далее".
-        if (page_number + 1) * self.PAGE_SIZE < len(self.cells):
-            tk.Button(button_frame, text="Далее", command=self.next_page).pack(side=tk.LEFT, padx=5, pady=5)
-        else:
-            tk.Button(button_frame, text="Конвертировать", command=self.controller.convert).pack(side=tk.LEFT, padx=5, pady=5)
+        all_files_frame = tk.Frame(button_frame)
+        all_files_frame.pack(fill=tk.X)
+        tk.Button(all_files_frame, text="Выделить все (все)", command=lambda: self.controller.select_all_cells("all")).pack(side=tk.LEFT, padx=4, pady=3)
+        tk.Button(all_files_frame, text="Снять выделение (все)", command=lambda: self.controller.deselect_all_cells("all")).pack(side=tk.LEFT, padx=4, pady=3)
+        tk.Button(all_files_frame, text="Только текст (все)", command=lambda: self.controller.select_markdown_cells("all")).pack(side=tk.LEFT, padx=4, pady=3)
+        tk.Button(all_files_frame, text="Только код (все)", command=lambda: self.controller.select_code_cells("all")).pack(side=tk.LEFT, padx=4, pady=3)
+        tk.Button(all_files_frame, text="Только выходные данные (все)", command=lambda: self.controller.select_output_cells("all")).pack(side=tk.LEFT, padx=4, pady=3)
 
-        # Для первой страницы отображать кнопку "Отмена", в остальных случаях — "Назад".
-        if page_number > 0:
-            tk.Button(button_frame, text="Назад", command=self.previous_page).pack(side=tk.LEFT, padx=5, pady=5)
-        else:
-            tk.Button(button_frame, text="Отмена", command=self.controller.back).pack(side=tk.LEFT, padx=5, pady=5)
+        navigation_frame = tk.Frame(button_frame)
+        navigation_frame.pack(fill=tk.X)
 
-    def highlight_code(self, text_widget, code):
-        pass
+        cells = self.controller.get_cells_for_file(self.current_file_index)
+        if self.current_page > 0:
+            tk.Button(navigation_frame, text="Назад", command=self.previous_page).pack(side=tk.LEFT, padx=4, pady=5)
+        if (self.current_page + 1) * self.PAGE_SIZE < len(cells):
+            tk.Button(navigation_frame, text="Далее", command=self.next_page).pack(side=tk.LEFT, padx=4, pady=5)
+
+        tk.Button(navigation_frame, text="Конвертировать", command=self.controller.convert).pack(side=tk.LEFT, padx=4, pady=5)
+        tk.Button(navigation_frame, text="Отмена", command=self.controller.back).pack(side=tk.LEFT, padx=4, pady=5)
+
+    def __on_file_selected(self, _event):
+        selection = self.file_listbox.curselection()
+        if not selection:
+            return
+        self.current_file_index = selection[0]
+        self.current_page = 0
+        self.show_screen()
+
+    def __refresh_file_list(self):
+        if not self.file_listbox:
+            return
+        self.file_listbox.delete(0, tk.END)
+        for file_index, file_name in enumerate(self.file_names):
+            marker = "✓" if self.__file_has_selected_cells(file_index) else " "
+            self.file_listbox.insert(tk.END, f"{marker} {file_name}")
+        self.file_listbox.selection_set(self.current_file_index)
+
+    def __file_has_selected_cells(self, file_index):
+        return any(
+            var.get()
+            for (selected_file_index, _cell_index), var in self.cell_vars.items()
+            if selected_file_index == file_index
+        )
 
     def clear_frame(self):
-        """Очистить экран перед отображением новых ячеек."""
         for widget in self.winfo_children():
             widget.destroy()
 
-    def _get_cell_var(self, cell_index):
-        if cell_index not in self.cell_vars:
-            self.cell_vars[cell_index] = tk.BooleanVar()
-        return self.cell_vars[cell_index]
+    def __get_cell_var(self, file_index, cell_index):
+        key = (file_index, cell_index)
+        if key not in self.cell_vars:
+            self.cell_vars[key] = tk.BooleanVar()
+        return self.cell_vars[key]
 
-    def set_selected_indices(self, selected_indices):
+    def set_selected_indices(self, file_index, selected_indices):
         selected_indices = set(selected_indices)
-        for cell_index in range(1, len(self.cells) + 1):
-            self._get_cell_var(cell_index).set(cell_index in selected_indices)
+        cells = self.controller.get_cells_for_file(file_index)
+        for cell_index in range(1, len(cells) + 1):
+            self.__get_cell_var(file_index, cell_index).set(cell_index in selected_indices)
+        self.__refresh_file_list()
 
-    def next_page(self):
-        """Перейти на следующую страницу."""
-        self.current_page += 1
-        self.show_current_page(self.current_page)
+    def set_selected_indices_by_file(self, selected_indices_by_file):
+        for file_index, selected_indices in selected_indices_by_file.items():
+            self.set_selected_indices(file_index, selected_indices)
 
-    def previous_page(self):
-        """Перейти на предыдущую страницу."""
-        self.current_page -= 1
-        self.show_current_page(self.current_page)
+    def get_selected_cells_by_file(self):
+        selected = {file_index: [] for file_index in range(len(self.file_names))}
+        for (file_index, cell_index), var in self.cell_vars.items():
+            if var.get():
+                selected[file_index].append(cell_index)
+        return {
+            file_index: sorted(indices)
+            for file_index, indices in selected.items()
+        }
 
     def get_selected_indices(self):
-        return sorted(cell_index for cell_index, cell_status in self.cell_vars.items() if cell_status.get())
+        if len(self.file_names) != 1:
+            return []
+        return self.get_selected_cells_by_file().get(0, [])
 
-    # noinspection PyMethodMayBeStatic
+    def next_page(self):
+        self.current_page += 1
+        self.show_screen()
+
+    def previous_page(self):
+        self.current_page -= 1
+        self.show_screen()
+
     def _on_text_mousewheel(self, event):
-        """Обработчик колёсика для прокрутки содержимого конкретного текстового поля.
-        Возвращает 'break', чтобы событие не распространилось на глобальный обработчик.
-        """
         event.widget.yview_scroll(int(-1 * (event.delta / 120)), "units")
         return "break"
 
     def _on_canvas_mousewheel(self, event):
-        """Глобальный обработчик колёсика для прокрутки всего списка ячеек.
-        Он срабатывает, если событие не было перехвачено более специфичным обработчиком.
-        """
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        if self.canvas:
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")

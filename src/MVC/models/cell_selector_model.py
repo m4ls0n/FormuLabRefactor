@@ -5,7 +5,9 @@ from copy import deepcopy
 from nbconvert import LatexExporter
 from nbconvert.filters import escape_latex
 from re import sub, DOTALL
+
 from traitlets.config import Config
+
 
 class CellSelectorModel:
     MARKDOWN_HEADING_STYLES = {
@@ -17,48 +19,96 @@ class CellSelectorModel:
         6: ("\\footnotesize", "0.7em", "0.4em"),
     }
 
-    def __init__(self, notebook_data):
+    def __init__(self, notebook_data, notebook_sources=None):
         self.notebook_data = notebook_data
+        self.notebook_sources = notebook_sources or [{
+            "name": "notebook.ipynb",
+            "path": None,
+            "notebook": notebook_data,
+        }]
         self.tex_content = None
+        self.tex_parts = []
         self.ipynb_images = {}
+        self.is_batch = len(self.notebook_sources) > 1
 
-    def get_cells(self):
-        return self.notebook_data['cells'] if self.notebook_data else []
+    def get_cells(self, file_index=None):
+        if file_index is None:
+            return self.notebook_data['cells'] if self.notebook_data else []
+        return self.notebook_sources[file_index]["notebook"].get('cells', [])
 
-    def get_all_cell_indices(self):
-        return list(range(1, len(self.get_cells()) + 1))
+    def get_file_names(self):
+        return [source["name"] for source in self.notebook_sources]
 
-    def get_markdown_cell_indices(self):
+    def get_all_cell_indices(self, file_index=None):
+        return list(range(1, len(self.get_cells(file_index)) + 1))
+
+    def get_markdown_cell_indices(self, file_index=None):
         return self.__get_cell_indices_by_predicate(
-            lambda cell: cell.get('cell_type') == 'markdown'
+            lambda cell: cell.get('cell_type') == 'markdown',
+            file_index
         )
 
-    def get_code_cell_indices(self):
+    def get_code_cell_indices(self, file_index=None):
         return self.__get_cell_indices_by_predicate(
-            lambda cell: cell.get('cell_type') == 'code'
+            lambda cell: cell.get('cell_type') == 'code',
+            file_index
         )
 
-    def get_output_cell_indices(self):
+    def get_output_cell_indices(self, file_index=None):
         return self.__get_cell_indices_by_predicate(
-            lambda cell: bool(cell.get('outputs'))
+            lambda cell: bool(cell.get('outputs')),
+            file_index
         )
 
-    def __get_cell_indices_by_predicate(self, predicate):
+    def __get_cell_indices_by_predicate(self, predicate, file_index=None):
         return [
             cell_index
-            for cell_index, cell in enumerate(self.get_cells(), start=1)
+            for cell_index, cell in enumerate(self.get_cells(file_index), start=1)
             if predicate(cell)
         ]
 
     def convert_to_tex(self, selected_indices):
-        # Нумерация в selected_indices идет с 1, а в notebook_data с 0.
+        self.ipynb_images = {}
+        self.tex_parts = []
         selected_cells = [deepcopy(self.notebook_data['cells'][i - 1]) for i in selected_indices]
+        tex_content = self.__convert_cells_to_tex(deepcopy(selected_cells))
+        self.tex_parts.append({
+            "name": self.notebook_sources[0]["name"],
+            "tex_content": tex_content,
+        })
+        self.tex_content = tex_content
+
+    def convert_selection_to_tex(self, selected_cells_by_file):
+        self.ipynb_images = {}
+        self.tex_parts = []
+        all_selected_cells = []
+
+        for file_index in sorted(selected_cells_by_file):
+            selected_indices = sorted(selected_cells_by_file[file_index])
+            if not selected_indices:
+                continue
+
+            source = self.notebook_sources[file_index]
+            selected_cells = [
+                deepcopy(source["notebook"]['cells'][i - 1])
+                for i in selected_indices
+            ]
+            all_selected_cells.extend(deepcopy(selected_cells))
+            self.tex_parts.append({
+                "name": source["name"],
+                "tex_content": self.__convert_cells_to_tex(deepcopy(selected_cells)),
+            })
+
+        self.tex_content = self.__convert_cells_to_tex(all_selected_cells, extract_images=False)
+
+    def __convert_cells_to_tex(self, selected_cells, extract_images=True):
         selected_cells = CellSelectorModel.__convert_markdown_headings(selected_cells)
         selected_cells = CellSelectorModel.__clear_image_output_filenames(selected_cells)
         temp_notebook = nbformat.v4.new_notebook()
         temp_notebook.cells = selected_cells
 
-        self.__extract_images(selected_cells)
+        if extract_images:
+            self.__extract_images(selected_cells)
 
         c = Config()
         c.ExtractOutputPreprocessor.output_filename_template = "image_{cell_index}_{index}{extension}"
@@ -66,19 +116,13 @@ class CellSelectorModel:
         latex_exporter = LatexExporter(config=c)
         try:
             tex_content, _ = latex_exporter.from_notebook_node(temp_notebook)
-            tex_content = CellSelectorModel.__validate_tex(tex_content)
-            self.tex_content = tex_content
+            return CellSelectorModel.__validate_tex(tex_content)
         except Exception as e:
             raise Exception(f"Ошибка экспорта в LaTeX: {e}")
 
     def __extract_images(self, cells):
-        """
-        Проходит по всем output- и attachment-данным ячеек,
-        извлекает картинки и сохраняет их в self.ipynb_images.
-        """
-        counter = 1
+        counter = len(self.ipynb_images) + 1
         for cell in cells:
-            # Из выходных данных ячеек.
             for output in cell.get('outputs', []):
                 for mime, content in output.get('data', {}).items():
                     if mime.startswith('image/'):
@@ -87,7 +131,7 @@ class CellSelectorModel:
                         name = f'image_{counter}.{ext}'
                         self.ipynb_images[name] = img_data
                         counter += 1
-            # Из attachment в markdown.
+
             for attachment in cell.get('attachments', {}).values():
                 for mime, content in attachment.items():
                     if mime.startswith('image/'):
@@ -188,26 +232,19 @@ class CellSelectorModel:
 
     @staticmethod
     def __comment_title(tex_lines):
-        # Комментируем \maketitle, если он есть.
-        tex_lines = [
+        return [
             "% \\maketitle" if line.strip() == "\\maketitle" else line
             for line in tex_lines
         ]
 
-        return tex_lines
-
     @staticmethod
     def __add_required_libraries(tex_lines):
         header_insert = (
-            # Заголовки для поддержки русского языка.
             "\\usepackage[T2A]{fontenc}\n"
-            "\\usepackage[utf8]{inputenc} % Для поддержки Unicode (UTF-8)\n"
-            "\\usepackage[russian]{babel} % Подключение русского языка\n"
-            # Поддержка валидного отображения длинных математических формул.
-            "% Поддержка валидного отображения длинных математических формул\n"
+            "\\usepackage[utf8]{inputenc}\n"
+            "\\usepackage[russian]{babel}\n"
             "\\usepackage{breqn}\n"
-            # Обёртка Pandoc – ограничивает размер картинки размерами текста и страницы.
-            "% Обёртка Pandoc – ограничивает размер картинки размерами текста и страницы\n"
+            "\\usepackage{url}\n"
             "\\newcommand{\\pandocbounded}[1]{\n"
             "    \\adjustbox{max size={\\linewidth}{\\paperheight}}{#1}\n"
             "}\n"
@@ -220,21 +257,14 @@ class CellSelectorModel:
 
     @staticmethod
     def __remove_labels(tex_lines):
-        # Используем регулярное выражение для удаления \label{...}.
-        tex_lines = [
-            sub(r'\\label\{.*?}', '', line)  # Заменяем \label{...} на пустую строку.
+        return [
+            sub(r'\\label\{.*?}', '', line)
             for line in tex_lines
         ]
-        return tex_lines
 
     @staticmethod
     def __handle_long_math_formulas(tex_lines):
-        """
-        Ищет блоки формул, оформленные как $\displaystyle ...$, и если их содержимое превышает заданный порог,
-        заменяет их на окружение display math (например, dmath* из пакета breqn), которое обеспечивает
-        автоматический перенос строк.
-        """
-        threshold = 200  # Пороговое значение длины математической формулы.
+        threshold = 200
         tex_str = "\n".join(tex_lines)
 
         def replace_display_math(match):
@@ -249,12 +279,8 @@ class CellSelectorModel:
         def replace_inline_math(match):
             content = match.group(1).strip()
             if len(content) > threshold:
-                # Меняем на окружение dmath* для автоматического переноса длинных формул.
                 return "\\begin{dmath*}\n" + content + "\n\\end{dmath*}"
-            else:
-                # Оставляем как есть.
-                return match.group(0)
+            return match.group(0)
 
-        # Ищем конструкции вида $\displaystyle ...$.
         tex_str = sub(r'\$\\displaystyle\s*(.*?)\$', replace_inline_math, tex_str, flags=DOTALL)
         return tex_str.split("\n")

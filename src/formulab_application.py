@@ -9,6 +9,7 @@ class FormuLabApplication:
 
         # Текущий редактируемый файл Jupyter Notebook.
         self.editable_notebook_data = None
+        self.notebook_sources = []
 
         width = self.root.winfo_screenwidth()
         height = self.root.winfo_screenheight()
@@ -32,7 +33,12 @@ class FormuLabApplication:
         # Обновляем текущее состояние хранимого ноутбука в случае, если пользователь выбрал новый файл.
         if isinstance(self.current_controller, MainMenuController):
             self.editable_notebook_data = self.current_controller.model.notebook_data
-        self.current_controller = CellSelectorController(self, self.editable_notebook_data)
+            self.notebook_sources = self.current_controller.model.notebook_sources
+        self.current_controller = CellSelectorController(
+            self,
+            self.editable_notebook_data,
+            self.notebook_sources
+        )
         self.current_controller.view.pack()
 
     def show_file_finalization(self):
@@ -43,7 +49,9 @@ class FormuLabApplication:
         # Создаем контроллер для доработки полученного файла tex.
         tex_content = self.current_controller.model.tex_content
         ipynb_images = self.current_controller.model.ipynb_images
-        self.current_controller = FileFinalizationController(self, tex_content, ipynb_images)
+        tex_parts = self.current_controller.model.tex_parts
+        is_batch = self.current_controller.model.is_batch
+        self.current_controller = FileFinalizationController(self, tex_content, ipynb_images, tex_parts, is_batch)
         self.current_controller.view.pack()
 
     def launch(self):
